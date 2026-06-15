@@ -1,14 +1,60 @@
 [project]
 name = "lbi"
 version = "0.1.0"
-description = "Add your description here"
+description = "LLM Batch Inference"
 readme = "README.md"
 authors = [
     { name = "Daniel Di Giovanni", email = "dannyjdigio@gmail.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "anthropic",
+    "google-genai",
+    "litellm",
+    "mistralai>=2.4.9",
+    "openai",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit",
+    "pyright>=1.1.410",
+    "ruff",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.26,<0.10.0"]
 build-backend = "uv_build"
+
+[tool.pyright]
+pythonVersion = "3.13"
+venvPath = "."
+venv = ".venv"
+include = ["src"]
+exclude = [
+    "**/.*",
+    "**/node_modules",
+    "**/__pycache__",
+    ".venv",
+    "venv",
+]
+typeCheckingMode = "strict"
+reportMissingImports = true
+reportMissingTypeStubs = false
+reportUnknownMemberType = "none"
+useLibraryCodeForTypes = true
+reportConstantRedefinition = false
+ignore = [
+]
+
+[tool.ruff]
+line-length = 79
+extend-exclude = [
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "single"
