@@ -1,5 +1,5 @@
 [project]
-name = "lbi"
+name = "llm-batch-inference"
 version = "0.1.0"
 description = "LLM Batch Inference"
 readme = "README.md"
