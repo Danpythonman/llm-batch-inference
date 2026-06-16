@@ -12,6 +12,7 @@ via a thread pool. Results are available immediately after
 
 from __future__ import annotations
 
+import os
 import io
 import json
 import logging
@@ -389,3 +390,29 @@ class OpenAIBatchProvider(BaseBatchProvider):
                 cause=exc,
             ) from exc
         return [_parse_batch_object(b) for b in page.data]
+
+
+async def run_batch(
+    batch_requests: list[BatchRequest],
+    model_name: str,
+    api_key: str | None,
+    batch_filename: str | None,
+):
+    if not api_key:
+        api_key = os.environ.get('OPENAI_API_KEY', None)
+        if api_key is None:
+            raise Exception('no api key provided')
+
+    if not batch_filename:
+        batch_filename = f'batch-{uuid.uuid4()}.jsonl'
+
+    openai_batch_provider = OpenAIBatchProvider(
+        api_key=api_key,
+    )
+    batch_info = openai_batch_provider.create_batch(
+        batch_requests,
+        model_name,
+        batch_filename,
+    )
+    await openai_batch_provider.wait_for_completion(batch_info.batch_id)
+    return openai_batch_provider.get_results(batch_info.batch_id)
