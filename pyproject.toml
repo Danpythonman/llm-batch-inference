@@ -26,6 +26,9 @@ dev = [
 requires = ["uv_build>=0.9.26,<0.10.0"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+module-name = "lbi"
+
 [tool.pyright]
 pythonVersion = "3.13"
 venvPath = "."
