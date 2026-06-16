@@ -12,10 +12,10 @@ via a thread pool. Results are available immediately after
 
 from __future__ import annotations
 
-import os
 import io
 import json
 import logging
+import os
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
