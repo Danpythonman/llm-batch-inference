@@ -13,7 +13,7 @@ from lbi.datamodels import (
     BatchResult,
     BatchStatus,
 )
-from lbi.exceptions import BatchPollTimeout
+from lbi.exceptions import BatchPollTimeoutError
 
 __all__: list[str] = [
     'BaseBatchProvider',
@@ -30,19 +30,18 @@ class BaseBatchProvider(abc.ABC):
     """Interface that every batch provider must implement.
 
     Subclasses wrap a specific provider SDK and translate between
-    the normalized llmbatch models and the provider's native API.
+    the normalized LBI models and the provider's native API.
     """
 
     # Subclasses should set this to a short lowercase name.
     provider_name: str = 'base'
 
     @abc.abstractmethod
-    def create_batch(
+    async def create_batch(
         self,
         requests: list[BatchRequest],
         model: str,
         batch_filename: str,
-        **kwargs: object,
     ) -> BatchInfo:
         """Submit a list of requests as a new batch job.
 
@@ -50,7 +49,6 @@ class BaseBatchProvider(abc.ABC):
             requests: The requests to include in the batch.
             model: The model identifier to use.
             batch_filename: The name of the batch file.
-            **kwargs: Provider-specific overrides.
 
         Returns:
             A BatchInfo with the provider-assigned batch ID
@@ -61,7 +59,7 @@ class BaseBatchProvider(abc.ABC):
         """
 
     @abc.abstractmethod
-    def get_batch(self, batch_id: str) -> BatchInfo:
+    async def get_batch(self, batch_id: str) -> BatchInfo:
         """Retrieve current metadata for an existing batch.
 
         Args:
@@ -75,7 +73,7 @@ class BaseBatchProvider(abc.ABC):
         """
 
     @abc.abstractmethod
-    def get_results(self, batch_id: str) -> list[BatchResult]:
+    async def get_results(self, batch_id: str) -> list[BatchResult]:
         """Download results for a completed batch.
 
         Args:
@@ -89,7 +87,7 @@ class BaseBatchProvider(abc.ABC):
         """
 
     @abc.abstractmethod
-    def cancel_batch(self, batch_id: str) -> BatchInfo:
+    async def cancel_batch(self, batch_id: str) -> BatchInfo:
         """Request cancellation of a running batch.
 
         Args:
@@ -100,7 +98,7 @@ class BaseBatchProvider(abc.ABC):
         """
 
     @abc.abstractmethod
-    def list_batches(
+    async def list_batches(
         self,
         limit: int = 20,
     ) -> list[BatchInfo]:
@@ -144,7 +142,7 @@ class BaseBatchProvider(abc.ABC):
         }
         start = time.monotonic()
         while True:
-            info = self.get_batch(batch_id)
+            info = await self.get_batch(batch_id)
             if info.status in _terminal:
                 logger.info(
                     'Batch %s reached terminal status: %s',
@@ -155,7 +153,7 @@ class BaseBatchProvider(abc.ABC):
 
             elapsed = time.monotonic() - start
             if elapsed + poll_interval > timeout:
-                raise BatchPollTimeout(
+                raise BatchPollTimeoutError(
                     f'Batch {batch_id} did not complete within'
                     f' {timeout}s (last status: {info.status.value})'
                 )
@@ -175,7 +173,6 @@ class BaseBatchProvider(abc.ABC):
         batch_filename: str,
         poll_interval: float = DEFAULT_POLL_INTERVAL,
         timeout: float = DEFAULT_POLL_TIMEOUT,
-        **kwargs: object,
     ) -> list[BatchResult]:
         """Convenience: create a batch, wait, and return results.
 
@@ -195,7 +192,7 @@ class BaseBatchProvider(abc.ABC):
             BatchPollTimeout: If the batch does not finish.
             ResultsNotReadyError: Should not occur normally.
         """
-        info = self.create_batch(requests, model, batch_filename, **kwargs)
+        info = await self.create_batch(requests, model, batch_filename)
         logger.info(
             'Created batch %s on %s, waiting for completion',
             info.batch_id,
@@ -206,4 +203,4 @@ class BaseBatchProvider(abc.ABC):
             poll_interval=poll_interval,
             timeout=timeout,
         )
-        return self.get_results(info.batch_id)
+        return await self.get_results(info.batch_id)

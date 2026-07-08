@@ -19,6 +19,11 @@ dependencies = [
 dev = [
     "pre-commit",
     "pyright>=1.1.410",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "pytest-mock>=3.15.1",
+    "respx>=0.23.1",
     "ruff",
 ]
 
@@ -41,14 +46,13 @@ exclude = [
     ".venv",
     "venv",
 ]
+ignore = ["**/tests"]
 typeCheckingMode = "strict"
 reportMissingImports = true
 reportMissingTypeStubs = false
 reportUnknownMemberType = "none"
 useLibraryCodeForTypes = true
 reportConstantRedefinition = false
-ignore = [
-]
 
 [tool.ruff]
 line-length = 79
@@ -56,8 +60,63 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+select = [
+    "E",        # pycodestyle errors (style/formatting issues)
+    "F",        # Pyflakes (unused imports, undefined names, etc.)
+    "I",        # isort (import sorting/ordering)
+    "UP",       # pyupgrade (use modern Python syntax)
+    "B",        # flake8-bugbear (likely bugs and design problems)
+    "C901",     # mccabe (cyclomatic complexity too high)
+    "PLR0911",  # too many return statements
+    "PLR0912",  # too many branches
+    "PLR0913",  # too many function arguments
+    "PLR0915",  # too many statements in a function
+    "SIM",      # flake8-simplify (simplify redundant code patterns)
+    "N",        # pep8-naming (naming conventions)
+    "A",        # flake8-builtins (shadowing builtin names)
+    "T20",      # flake8-print (flags print statements)
+    "RET",      # flake8-return (return statement issues)
+    "ARG",      # flake8-unused-arguments
+    "PTH",      # flake8-use-pathlib (use pathlib over os.path)
+    "ERA",      # eradicate (commented-out code)
+    "PL",       # full Pylint rule set (superset of the PLR* you have)
+    "RUF",      # Ruff-specific rules
+    "S",        # flake8-bandit (security issues)
+    "ANN",      # flake8-annotations (missing type annotations)
+    "TID",      # flake8-tidy-imports (import restrictions)
+    "DTZ",      # flake8-datetimez (naive datetime usage)
+]
 ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "PLR2004", "PLR0913", "ANN401"]
+"test_*.py" = ["S101", "PLR2004", "PLR0913", "ANN401"]
 
 [tool.ruff.format]
 quote-style = "single"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-m 'not integration' --strict-markers"
+markers = [
+    "integration: hits real LLM providers; excluded by default",
+]
+
+[tool.coverage.run]
+source = ["lbi"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-branches = 12
+max-returns = 6
+max-args = 5
+max-locals = 15
+max-statements = 50

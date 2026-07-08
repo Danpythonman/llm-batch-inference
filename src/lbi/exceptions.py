@@ -5,11 +5,11 @@ from __future__ import annotations
 # --- Public API ---
 
 __all__: list[str] = [
-    'BatchLLMError',
-    'BatchCreationError',
-    'BatchNotFoundError',
-    'BatchPollTimeout',
     'BatchCancelledError',
+    'BatchCreationError',
+    'BatchLLMError',
+    'BatchNotFoundError',
+    'BatchPollTimeoutError',
     'ProviderError',
     'ResultsNotReadyError',
 ]
@@ -30,7 +30,7 @@ class BatchNotFoundError(BatchLLMError):
     """Raised when a batch ID cannot be found."""
 
 
-class BatchPollTimeout(BatchLLMError):
+class BatchPollTimeoutError(BatchLLMError):
     """Raised when polling exceeds the configured timeout."""
 
 

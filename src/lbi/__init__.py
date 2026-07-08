@@ -10,13 +10,13 @@ from lbi.datamodels import (
 from lbi.openai import OpenAIBatchProvider, run_batch
 
 __all__ = [
-    'OpenAIBatchProvider',
-    'run_batch',
     'BatchInfo',
     'BatchRequest',
     'BatchResult',
     'BatchResultStatus',
     'BatchStatus',
     'Message',
+    'OpenAIBatchProvider',
     'Role',
+    'run_batch',
 ]

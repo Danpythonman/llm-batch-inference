@@ -7,11 +7,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 __all__: list[str] = [
-    'BatchStatus',
+    'BatchInfo',
     'BatchRequest',
     'BatchResult',
     'BatchResultStatus',
-    'BatchInfo',
+    'BatchStatus',
     'Message',
     'Role',
 ]

@@ -12,17 +12,16 @@ via a thread pool. Results are available immediately after
 
 from __future__ import annotations
 
+import http
 import io
 import json
 import logging
 import os
-import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
-from openai import OpenAI
-from openai.types.chat import ChatCompletionMessageParam
+from openai import AsyncOpenAI
+from openai.types import Batch
 
 from lbi.base import BaseBatchProvider
 from lbi.datamodels import (
@@ -38,6 +37,7 @@ from lbi.exceptions import (
     ProviderError,
     ResultsNotReadyError,
 )
+from lbi.openai.inline import InlineOpenAIBatchProvider
 
 __all__: list[str] = [
     'OpenAIBatchProvider',
@@ -80,7 +80,7 @@ def _request_to_jsonl_line(
     }
 
 
-def _parse_batch_object(batch: Any) -> BatchInfo:
+def _parse_batch_object(batch: Batch) -> BatchInfo:
     """Map an OpenAI Batch object to a normalized BatchInfo."""
     counts = getattr(batch, 'request_counts', None)
     return BatchInfo(
@@ -117,120 +117,34 @@ class OpenAIBatchProvider(BaseBatchProvider):
 
     provider_name: str = 'openai'
 
+    def __new__(
+        cls,
+        use_inline: bool = False,
+        api_key: str | None = None,
+        max_workers: int = 8,
+    ) -> OpenAIBatchProvider | InlineOpenAIBatchProvider:
+        if use_inline:
+            return InlineOpenAIBatchProvider(
+                api_key=api_key,
+                max_workers=max_workers,
+            )
+        return super().__new__(cls)
+
     def __init__(
         self,
-        api_key: str | None = None,
-        client: OpenAI | None = None,
         use_inline: bool = False,
+        api_key: str | None = None,
         max_workers: int = 8,
     ) -> None:
-        if client is not None:
-            self._client = client
-        else:
-            self._client = OpenAI(api_key=api_key)
-        self._use_inline = use_inline
-        self._max_workers = max_workers
-        # Keyed by batch_id; holds (BatchInfo, results) for inline runs.
-        self._inline_store: dict[str, tuple[BatchInfo, list[BatchResult]]] = {}
+        del use_inline
+        del max_workers
+        self._client = AsyncOpenAI(api_key=api_key)
 
-    def _call_one(self, req: BatchRequest, model: str) -> BatchResult:
-        """Execute a single request via the Chat Completions API."""
-        if 'stream' in req.extra:
-            raise Exception('stream parameter not allowed')
-        try:
-            messages: list[ChatCompletionMessageParam] = []
-            for m in req.messages:
-                role = m.role.value
-                if role == 'user':
-                    messages.append({'role': 'user', 'content': m.content})
-                elif role == 'assistant':
-                    messages.append(
-                        {'role': 'assistant', 'content': m.content}
-                    )
-                elif role == 'system':
-                    messages.append({'role': 'system', 'content': m.content})
-                else:
-                    raise ValueError(f'unsupported role: {role}')
-            resp = self._client.chat.completions.create(
-                model=req.model or model,
-                max_tokens=req.max_tokens,
-                messages=messages,
-                temperature=req.temperature,
-                stream=False,
-                **req.extra,
-            )
-            content = resp.choices[0].message.content if resp.choices else None
-            usage = None
-            if resp.usage:
-                usage = {
-                    'prompt_tokens': resp.usage.prompt_tokens,
-                    'completion_tokens': resp.usage.completion_tokens,
-                    'total_tokens': resp.usage.total_tokens,
-                }
-            return BatchResult(
-                custom_id=req.custom_id,
-                status=BatchResultStatus.SUCCEEDED,
-                content=content,
-                usage=usage,
-                raw=resp,
-            )
-        except Exception as exc:
-            logger.warning(
-                'Inline request %s failed: %s',
-                req.custom_id,
-                exc,
-            )
-            return BatchResult(
-                custom_id=req.custom_id,
-                status=BatchResultStatus.ERRORED,
-                error=str(exc),
-            )
-
-    def _create_inline_batch(
-        self,
-        requests: list[BatchRequest],
-        model: str,
-    ) -> BatchInfo:
-        """Execute all requests immediately via the regular API."""
-        batch_id = f'inline-{uuid.uuid4().hex}'
-        created_at = time.time()
-        results: list[BatchResult] = [None] * len(requests)  # type: ignore
-
-        with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-            future_to_idx = {
-                pool.submit(self._call_one, req, model): i
-                for i, req in enumerate(requests)
-            }
-            for future in as_completed(future_to_idx):
-                results[future_to_idx[future]] = future.result()
-
-        completed = sum(
-            1 for r in results if r.status == BatchResultStatus.SUCCEEDED
-        )
-        info = BatchInfo(
-            batch_id=batch_id,
-            status=BatchStatus.COMPLETED,
-            provider='openai',
-            created_at=created_at,
-            total=len(results),
-            completed=completed,
-            failed=len(results) - completed,
-        )
-        self._inline_store[batch_id] = (info, results)
-        logger.info(
-            'Inline batch %s complete: %d/%d succeeded',
-            batch_id,
-            completed,
-            len(results),
-        )
-        return info
-
-    def create_batch(
+    async def create_batch(
         self,
         requests: list[BatchRequest],
         model: str,
         batch_filename: str,
-        **kwargs: object,
     ) -> BatchInfo:
         """Submit requests as a batch.
 
@@ -238,8 +152,6 @@ class OpenAIBatchProvider(BaseBatchProvider):
         regular Chat Completions API and returns a completed BatchInfo.
         Otherwise, uploads a JSONL file and creates an OpenAI batch.
         """
-        if self._use_inline:
-            return self._create_inline_batch(requests, model)
 
         lines = [
             json.dumps(_request_to_jsonl_line(r, model)) for r in requests
@@ -249,11 +161,11 @@ class OpenAIBatchProvider(BaseBatchProvider):
         buf.name = batch_filename
 
         try:
-            file_obj = self._client.files.create(
+            file_obj = await self._client.files.create(
                 file=buf,
                 purpose='batch',
             )
-            batch = self._client.batches.create(
+            batch = await self._client.batches.create(
                 input_file_id=file_obj.id,
                 endpoint='/v1/chat/completions',
                 completion_window='24h',
@@ -266,30 +178,25 @@ class OpenAIBatchProvider(BaseBatchProvider):
         logger.info('OpenAI batch created: %s', batch.id)
         return _parse_batch_object(batch)
 
-    def get_batch(self, batch_id: str) -> BatchInfo:
+    async def get_batch(self, batch_id: str) -> BatchInfo:
         """Retrieve current batch status.
 
         For inline batches, returns the stored completed BatchInfo.
         """
-        if batch_id in self._inline_store:
-            return self._inline_store[batch_id][0]
         try:
-            batch = self._client.batches.retrieve(batch_id)
+            batch = await self._client.batches.retrieve(batch_id)
         except Exception as exc:
             raise BatchNotFoundError(
                 f'OpenAI batch {batch_id} not found: {exc}'
             ) from exc
         return _parse_batch_object(batch)
 
-    def get_results(self, batch_id: str) -> list[BatchResult]:
+    async def get_results(self, batch_id: str) -> list[BatchResult]:
         """Download and parse results for a completed batch.
 
         For inline batches, returns the stored results immediately.
         """
-        if batch_id in self._inline_store:
-            return list(self._inline_store[batch_id][1])
-
-        info = self.get_batch(batch_id)
+        info = await self.get_batch(batch_id)
         if info.status != BatchStatus.COMPLETED:
             raise ResultsNotReadyError(
                 f'Batch {batch_id} status is {info.status.value},'
@@ -301,8 +208,10 @@ class OpenAIBatchProvider(BaseBatchProvider):
             raise ResultsNotReadyError(f'Batch {batch_id} has no output file')
 
         try:
-            content = self._client.files.content(
-                output_file_id,
+            content = (
+                await self._client.files.content(
+                    output_file_id,
+                )
             ).content
         except Exception as exc:
             raise ProviderError(
@@ -321,7 +230,7 @@ class OpenAIBatchProvider(BaseBatchProvider):
             status_code = resp.get('status_code', 0)
             error = row.get('error')
 
-            if status_code == 200 and not error:
+            if status_code == http.HTTPStatus.OK and not error:
                 choices = body.get('choices', [])
                 text = choices[0]['message']['content'] if choices else None
                 results.append(
@@ -344,20 +253,14 @@ class OpenAIBatchProvider(BaseBatchProvider):
                 )
         return results
 
-    def cancel_batch(self, batch_id: str) -> BatchInfo:
+    async def cancel_batch(self, batch_id: str) -> BatchInfo:
         """Request cancellation of an OpenAI batch.
 
         Raises ProviderError for inline batches, which are already
         completed synchronously and cannot be cancelled.
         """
-        if batch_id in self._inline_store:
-            raise ProviderError(
-                'openai',
-                f'Inline batch {batch_id} cannot be cancelled'
-                ' (already completed synchronously)',
-            )
         try:
-            batch = self._client.batches.cancel(batch_id)
+            batch = await self._client.batches.cancel(batch_id)
         except Exception as exc:
             raise ProviderError(
                 'openai',
@@ -366,7 +269,7 @@ class OpenAIBatchProvider(BaseBatchProvider):
             ) from exc
         return _parse_batch_object(batch)
 
-    def list_batches(
+    async def list_batches(
         self,
         limit: int = 20,
     ) -> list[BatchInfo]:
@@ -374,15 +277,8 @@ class OpenAIBatchProvider(BaseBatchProvider):
 
         In inline mode, returns in-memory batches sorted newest-first.
         """
-        if self._use_inline:
-            infos = [v[0] for v in self._inline_store.values()]
-            return sorted(
-                infos,
-                key=lambda x: x.created_at or 0.0,
-                reverse=True,
-            )[:limit]
         try:
-            page = self._client.batches.list(limit=limit)
+            page = await self._client.batches.list(limit=limit)
         except Exception as exc:
             raise ProviderError(
                 'openai',
@@ -397,7 +293,7 @@ async def run_batch(
     model_name: str,
     api_key: str | None,
     batch_filename: str | None,
-):
+) -> list[BatchResult]:
     if not api_key:
         api_key = os.environ.get('OPENAI_API_KEY', None)
         if api_key is None:
@@ -409,10 +305,10 @@ async def run_batch(
     openai_batch_provider = OpenAIBatchProvider(
         api_key=api_key,
     )
-    batch_info = openai_batch_provider.create_batch(
+    batch_info = await openai_batch_provider.create_batch(
         batch_requests,
         model_name,
         batch_filename,
     )
     await openai_batch_provider.wait_for_completion(batch_info.batch_id)
-    return openai_batch_provider.get_results(batch_info.batch_id)
+    return await openai_batch_provider.get_results(batch_info.batch_id)
