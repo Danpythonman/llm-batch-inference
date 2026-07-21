@@ -12,16 +12,18 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from openai.types import Batch
 
 from lbi.datamodels import (
     BatchRequest,
     BatchResultStatus,
     BatchStatus,
-    Message,        # ASSUMPTION: model with role, content
-    Role,     # ASSUMPTION: enum with .USER member
+    Message,  # ASSUMPTION: model with role, content
+    Role,  # ASSUMPTION: enum with .USER member
 )
 from lbi.exceptions import (
     BatchCreationError,
@@ -29,18 +31,18 @@ from lbi.exceptions import (
     ProviderError,
     ResultsNotReadyError,
 )
+from lbi.openai.inline import InlineOpenAIBatchProvider
 from lbi.openai.openai import (
     OpenAIBatchProvider,
     _parse_batch_object,
     _request_to_jsonl_line,
     run_batch,
 )
-from lbi.openai.inline import InlineOpenAIBatchProvider
-
 
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _fake_batch(
     *,
@@ -51,15 +53,18 @@ def _fake_batch(
     total: int = 3,
     completed: int = 3,
     failed: int = 0,
-) -> SimpleNamespace:
+) -> Batch:
     """Minimal stand-in for openai.types.Batch."""
     counts = SimpleNamespace(total=total, completed=completed, failed=failed)
-    return SimpleNamespace(
-        id=id,
-        status=status,
-        created_at=created_at,
-        output_file_id=output_file_id,
-        request_counts=counts,
+    return cast(
+        Batch,
+        SimpleNamespace(
+            id=id,
+            status=status,
+            created_at=created_at,
+            output_file_id=output_file_id,
+            request_counts=counts,
+        ),
     )
 
 
@@ -98,6 +103,7 @@ def provider(mock_client) -> OpenAIBatchProvider:
 # __new__ dispatch
 # ---------------------------------------------------------------------------
 
+
 class TestConstruction:
     def test_default_returns_openai_batch_provider(self, mock_client):
         p = OpenAIBatchProvider(api_key='sk-test')
@@ -109,13 +115,16 @@ class TestConstruction:
             'lbi.openai.inline.InlineOpenAIBatchProvider.__init__',
             return_value=None,
         )
-        p = OpenAIBatchProvider(use_inline=True, api_key='sk-test', max_workers=4)
+        p = OpenAIBatchProvider(
+            use_inline=True, api_key='sk-test', max_workers=4
+        )
         assert isinstance(p, InlineOpenAIBatchProvider)
 
 
 # ---------------------------------------------------------------------------
 # _request_to_jsonl_line
 # ---------------------------------------------------------------------------
+
 
 class TestRequestToJsonlLine:
     def test_basic_fields(self):
@@ -170,6 +179,7 @@ class TestRequestToJsonlLine:
 # _parse_batch_object
 # ---------------------------------------------------------------------------
 
+
 class TestParseBatchObject:
     @pytest.mark.parametrize(
         'raw_status,expected',
@@ -205,7 +215,10 @@ class TestParseBatchObject:
         assert info.raw is batch
 
     def test_missing_request_counts_yields_none(self):
-        batch = SimpleNamespace(id='batch_1', status='completed', created_at=0)
+        batch = cast(
+            Batch,
+            SimpleNamespace(id='batch_1', status='completed', created_at=0),
+        )
         info = _parse_batch_object(batch)
         assert info.total is None
         assert info.completed is None
@@ -216,13 +229,20 @@ class TestParseBatchObject:
 # create_batch
 # ---------------------------------------------------------------------------
 
+
 class TestCreateBatch:
-    async def test_uploads_file_then_creates_batch(self, provider, mock_client):
+    async def test_uploads_file_then_creates_batch(
+        self, provider, mock_client
+    ):
         mock_client.files.create.return_value = SimpleNamespace(id='file_1')
-        mock_client.batches.create.return_value = _fake_batch(status='validating')
+        mock_client.batches.create.return_value = _fake_batch(
+            status='validating'
+        )
 
         info = await provider.create_batch(
-            _make_requests(2), model='gpt-4o-mini', batch_filename='b.jsonl',
+            _make_requests(2),
+            model='gpt-4o-mini',
+            batch_filename='b.jsonl',
         )
 
         assert info.status == BatchStatus.PENDING
@@ -238,14 +258,18 @@ class TestCreateBatch:
         )
 
     async def test_payload_has_one_jsonl_line_per_request(
-        self, provider, mock_client,
+        self,
+        provider,
+        mock_client,
     ):
         mock_client.files.create.return_value = SimpleNamespace(id='file_1')
         mock_client.batches.create.return_value = _fake_batch()
 
         requests = _make_requests(3)
         await provider.create_batch(
-            requests, model='gpt-4o-mini', batch_filename='b.jsonl',
+            requests,
+            model='gpt-4o-mini',
+            batch_filename='b.jsonl',
         )
 
         uploaded = mock_client.files.create.call_args.kwargs['file']
@@ -255,24 +279,32 @@ class TestCreateBatch:
         assert custom_ids == {r.custom_id for r in requests}
 
     async def test_upload_failure_raises_batch_creation_error(
-        self, provider, mock_client,
+        self,
+        provider,
+        mock_client,
     ):
         mock_client.files.create.side_effect = RuntimeError('boom')
 
         with pytest.raises(BatchCreationError):
             await provider.create_batch(
-                _make_requests(1), model='gpt-4o-mini', batch_filename='b.jsonl',
+                _make_requests(1),
+                model='gpt-4o-mini',
+                batch_filename='b.jsonl',
             )
 
     async def test_batch_creation_failure_raises_batch_creation_error(
-        self, provider, mock_client,
+        self,
+        provider,
+        mock_client,
     ):
         mock_client.files.create.return_value = SimpleNamespace(id='file_1')
         mock_client.batches.create.side_effect = RuntimeError('boom')
 
         with pytest.raises(BatchCreationError):
             await provider.create_batch(
-                _make_requests(1), model='gpt-4o-mini', batch_filename='b.jsonl',
+                _make_requests(1),
+                model='gpt-4o-mini',
+                batch_filename='b.jsonl',
             )
 
 
@@ -280,9 +312,12 @@ class TestCreateBatch:
 # get_batch
 # ---------------------------------------------------------------------------
 
+
 class TestGetBatch:
     async def test_returns_parsed_info(self, provider, mock_client):
-        mock_client.batches.retrieve.return_value = _fake_batch(status='in_progress')
+        mock_client.batches.retrieve.return_value = _fake_batch(
+            status='in_progress'
+        )
         info = await provider.get_batch('batch_123')
         assert info.status == BatchStatus.IN_PROGRESS
         mock_client.batches.retrieve.assert_awaited_once_with('batch_123')
@@ -297,29 +332,39 @@ class TestGetBatch:
 # get_results
 # ---------------------------------------------------------------------------
 
+
 class TestGetResults:
     async def test_raises_when_not_completed(self, provider, mock_client):
-        mock_client.batches.retrieve.return_value = _fake_batch(status='in_progress')
+        mock_client.batches.retrieve.return_value = _fake_batch(
+            status='in_progress'
+        )
         with pytest.raises(ResultsNotReadyError):
             await provider.get_results('batch_123')
 
     async def test_raises_when_no_output_file(self, provider, mock_client):
         mock_client.batches.retrieve.return_value = _fake_batch(
-            status='completed', output_file_id=None,
+            status='completed',
+            output_file_id=None,
         )
         with pytest.raises(ResultsNotReadyError):
             await provider.get_results('batch_123')
 
     async def test_download_failure_raises_provider_error(
-        self, provider, mock_client,
+        self,
+        provider,
+        mock_client,
     ):
-        mock_client.batches.retrieve.return_value = _fake_batch(status='completed')
+        mock_client.batches.retrieve.return_value = _fake_batch(
+            status='completed'
+        )
         mock_client.files.content.side_effect = RuntimeError('boom')
         with pytest.raises(ProviderError):
             await provider.get_results('batch_123')
 
     async def test_parses_successful_results(self, provider, mock_client):
-        mock_client.batches.retrieve.return_value = _fake_batch(status='completed')
+        mock_client.batches.retrieve.return_value = _fake_batch(
+            status='completed'
+        )
         rows = [
             {
                 'custom_id': 'req-0',
@@ -334,7 +379,9 @@ class TestGetResults:
             },
         ]
         content = '\n'.join(json.dumps(r) for r in rows).encode()
-        mock_client.files.content.return_value = SimpleNamespace(content=content)
+        mock_client.files.content.return_value = SimpleNamespace(
+            content=content
+        )
 
         results = await provider.get_results('batch_123')
 
@@ -346,7 +393,9 @@ class TestGetResults:
         assert r.usage == {'total_tokens': 5}
 
     async def test_parses_errored_results(self, provider, mock_client):
-        mock_client.batches.retrieve.return_value = _fake_batch(status='completed')
+        mock_client.batches.retrieve.return_value = _fake_batch(
+            status='completed'
+        )
         rows = [
             {
                 'custom_id': 'req-0',
@@ -355,7 +404,9 @@ class TestGetResults:
             },
         ]
         content = '\n'.join(json.dumps(r) for r in rows).encode()
-        mock_client.files.content.return_value = SimpleNamespace(content=content)
+        mock_client.files.content.return_value = SimpleNamespace(
+            content=content
+        )
 
         results = await provider.get_results('batch_123')
 
@@ -365,7 +416,9 @@ class TestGetResults:
         assert 'bad request' in r.error
 
     async def test_skips_blank_lines(self, provider, mock_client):
-        mock_client.batches.retrieve.return_value = _fake_batch(status='completed')
+        mock_client.batches.retrieve.return_value = _fake_batch(
+            status='completed'
+        )
         row = {
             'custom_id': 'req-0',
             'response': {
@@ -375,7 +428,9 @@ class TestGetResults:
             'error': None,
         }
         content = ('\n' + json.dumps(row) + '\n\n').encode()
-        mock_client.files.content.return_value = SimpleNamespace(content=content)
+        mock_client.files.content.return_value = SimpleNamespace(
+            content=content
+        )
 
         results = await provider.get_results('batch_123')
         assert len(results) == 1
@@ -385,9 +440,12 @@ class TestGetResults:
 # cancel_batch
 # ---------------------------------------------------------------------------
 
+
 class TestCancelBatch:
     async def test_returns_parsed_info(self, provider, mock_client):
-        mock_client.batches.cancel.return_value = _fake_batch(status='cancelling')
+        mock_client.batches.cancel.return_value = _fake_batch(
+            status='cancelling'
+        )
         info = await provider.cancel_batch('batch_123')
         assert info.status == BatchStatus.CANCELLED
         mock_client.batches.cancel.assert_awaited_once_with('batch_123')
@@ -401,6 +459,7 @@ class TestCancelBatch:
 # ---------------------------------------------------------------------------
 # list_batches
 # ---------------------------------------------------------------------------
+
 
 class TestListBatches:
     async def test_returns_parsed_list(self, provider, mock_client):
@@ -421,6 +480,7 @@ class TestListBatches:
 # run_batch
 # ---------------------------------------------------------------------------
 
+
 class TestRunBatch:
     async def test_raises_without_api_key(self, monkeypatch):
         monkeypatch.delenv('OPENAI_API_KEY', raising=False)
@@ -433,18 +493,28 @@ class TestRunBatch:
             )
 
     async def test_full_flow_uses_provided_api_key(
-        self, mock_client, mocker,
+        self,
+        mock_client,
+        mocker,
     ):
         mock_client.files.create.return_value = SimpleNamespace(id='file_1')
-        mock_client.batches.create.return_value = _fake_batch(status='validating')
+        mock_client.batches.create.return_value = _fake_batch(
+            status='validating'
+        )
 
         mocker.patch.object(
             OpenAIBatchProvider,
             'wait_for_completion',
-            AsyncMock(return_value=_parse_batch_object(_fake_batch(status='completed'))),
+            AsyncMock(
+                return_value=_parse_batch_object(
+                    _fake_batch(status='completed')
+                )
+            ),
         )
         mocker.patch.object(
-            OpenAIBatchProvider, 'get_results', AsyncMock(return_value=['sentinel']),
+            OpenAIBatchProvider,
+            'get_results',
+            AsyncMock(return_value=['sentinel']),
         )
 
         results = await run_batch(
@@ -456,14 +526,23 @@ class TestRunBatch:
         assert results == ['sentinel']
 
     async def test_falls_back_to_env_api_key(
-        self, mock_client, mocker, monkeypatch,
+        self,
+        mock_client,
+        mocker,
+        monkeypatch,
     ):
         monkeypatch.setenv('OPENAI_API_KEY', 'sk-env')
         mock_client.files.create.return_value = SimpleNamespace(id='file_1')
-        mock_client.batches.create.return_value = _fake_batch(status='validating')
-        mocker.patch.object(OpenAIBatchProvider, 'wait_for_completion', AsyncMock())
+        mock_client.batches.create.return_value = _fake_batch(
+            status='validating'
+        )
         mocker.patch.object(
-            OpenAIBatchProvider, 'get_results', AsyncMock(return_value=[]),
+            OpenAIBatchProvider, 'wait_for_completion', AsyncMock()
+        )
+        mocker.patch.object(
+            OpenAIBatchProvider,
+            'get_results',
+            AsyncMock(return_value=[]),
         )
 
         await run_batch(
@@ -475,13 +554,21 @@ class TestRunBatch:
         # No assertion error means the env var was picked up successfully.
 
     async def test_generates_default_filename_when_none_given(
-        self, mock_client, mocker,
+        self,
+        mock_client,
+        mocker,
     ):
         mock_client.files.create.return_value = SimpleNamespace(id='file_1')
-        mock_client.batches.create.return_value = _fake_batch(status='validating')
-        mocker.patch.object(OpenAIBatchProvider, 'wait_for_completion', AsyncMock())
+        mock_client.batches.create.return_value = _fake_batch(
+            status='validating'
+        )
         mocker.patch.object(
-            OpenAIBatchProvider, 'get_results', AsyncMock(return_value=[]),
+            OpenAIBatchProvider, 'wait_for_completion', AsyncMock()
+        )
+        mocker.patch.object(
+            OpenAIBatchProvider,
+            'get_results',
+            AsyncMock(return_value=[]),
         )
 
         await run_batch(

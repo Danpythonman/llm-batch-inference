@@ -139,10 +139,12 @@ class OpenAIBatchProvider(BaseBatchProvider):
         api_key: str | None = None,
         max_workers: int | None = None,
     ) -> OpenAIBatchProvider | InlineOpenAIBatchProvider:
-        del api_key
-        del max_workers
-        target = InlineOpenAIBatchProvider if use_inline else cls
-        return object.__new__(target)
+        if use_inline:
+            inline_kwargs: dict[str, Any] = {'api_key': api_key}
+            if max_workers is not None:
+                inline_kwargs['max_workers'] = max_workers
+            return InlineOpenAIBatchProvider(**inline_kwargs)
+        return object.__new__(cls)
 
     def __init__(
         self,
