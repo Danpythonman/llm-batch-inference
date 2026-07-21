@@ -18,7 +18,7 @@ import json
 import logging
 import os
 import uuid
-from typing import Any
+from typing import Any, Literal, overload
 
 from openai import AsyncOpenAI
 from openai.types import Batch
@@ -117,24 +117,38 @@ class OpenAIBatchProvider(BaseBatchProvider):
 
     provider_name: str = 'openai'
 
+    @overload
+    def __new__(
+        cls,
+        use_inline: Literal[False] = False,
+        api_key: str | None = None,
+        max_workers: int | None = None,
+    ) -> OpenAIBatchProvider: ...
+
+    @overload
+    def __new__(
+        cls,
+        use_inline: Literal[True],
+        api_key: str | None = None,
+        max_workers: int | None = None,
+    ) -> InlineOpenAIBatchProvider: ...
+
     def __new__(
         cls,
         use_inline: bool = False,
         api_key: str | None = None,
-        max_workers: int = 8,
+        max_workers: int | None = None,
     ) -> OpenAIBatchProvider | InlineOpenAIBatchProvider:
-        if use_inline:
-            return InlineOpenAIBatchProvider(
-                api_key=api_key,
-                max_workers=max_workers,
-            )
-        return super().__new__(cls)
+        del api_key
+        del max_workers
+        target = InlineOpenAIBatchProvider if use_inline else cls
+        return object.__new__(target)
 
     def __init__(
         self,
         use_inline: bool = False,
         api_key: str | None = None,
-        max_workers: int = 8,
+        max_workers: int | None = None,
     ) -> None:
         del use_inline
         del max_workers

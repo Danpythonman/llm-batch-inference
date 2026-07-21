@@ -11,8 +11,9 @@ dependencies = [
     "anthropic",
     "google-genai",
     "litellm",
-    "mistralai>=2.4.9",
+    "mistralai>=2.7.0",
     "openai",
+    "python-dotenv>=1.2.2",
 ]
 
 [dependency-groups]
@@ -23,6 +24,7 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
     "pytest-mock>=3.15.1",
+    "pytest-xdist>=3.8.0",
     "respx>=0.23.1",
     "ruff",
 ]
@@ -46,8 +48,8 @@ exclude = [
     ".venv",
     "venv",
 ]
-ignore = ["**/tests"]
-typeCheckingMode = "strict"
+typeCheckingMode = "standard"
+strict=["src"]
 reportMissingImports = true
 reportMissingTypeStubs = false
 reportUnknownMemberType = "none"
@@ -57,6 +59,7 @@ reportConstantRedefinition = false
 [tool.ruff]
 line-length = 79
 extend-exclude = [
+    "tests",
 ]
 
 [tool.ruff.lint]
@@ -87,10 +90,6 @@ select = [
     "DTZ",      # flake8-datetimez (naive datetime usage)
 ]
 ignore = []
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "PLR2004", "PLR0913", "ANN401"]
-"test_*.py" = ["S101", "PLR2004", "PLR0913", "ANN401"]
 
 [tool.ruff.format]
 quote-style = "single"
