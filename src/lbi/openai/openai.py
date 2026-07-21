@@ -63,7 +63,7 @@ def _request_to_jsonl_line(
 ) -> dict[str, Any]:
     """Convert a BatchRequest into an OpenAI batch JSONL line."""
     body: dict[str, Any] = {
-        'model': req.model or model,
+        'model': model,
         'max_tokens': req.max_tokens,
         'messages': [
             {'role': m.role.value, 'content': m.content} for m in req.messages

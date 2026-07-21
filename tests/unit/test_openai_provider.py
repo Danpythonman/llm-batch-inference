@@ -143,16 +143,6 @@ class TestRequestToJsonlLine:
         assert line['body']['messages'] == [{'role': 'user', 'content': 'hi'}]
         assert 'temperature' not in line['body']
 
-    def test_per_request_model_overrides_default(self):
-        req = BatchRequest(
-            custom_id='abc',
-            model='gpt-4o',
-            max_tokens=10,
-            messages=[Message(role=Role.USER, content='hi')],
-        )
-        line = _request_to_jsonl_line(req, model='gpt-4o-mini')
-        assert line['body']['model'] == 'gpt-4o'
-
     def test_temperature_included_when_set(self):
         req = BatchRequest(
             custom_id='abc',

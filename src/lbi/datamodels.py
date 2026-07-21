@@ -66,7 +66,6 @@ class BatchRequest:
     Args:
         custom_id: Caller-defined identifier, unique within the batch.
         messages: Conversation messages for the completion.
-        model: Model override per-request (provider-dependent).
         max_tokens: Maximum tokens for the completion response.
         temperature: Sampling temperature.
         extra: Arbitrary provider-specific parameters.
@@ -74,7 +73,6 @@ class BatchRequest:
 
     custom_id: str
     messages: list[Message]
-    model: str | None = None
     max_tokens: int = 1024
     temperature: float | None = None
     extra: dict[str, Any] = field(default_factory=dict[str, Any])

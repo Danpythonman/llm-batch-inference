@@ -85,7 +85,7 @@ def _request_to_anthropic(req: BatchRequest, model: str) -> Request:
     """Convert a BatchRequest into an Anthropic batch Request."""
     system, messages = _split_messages(req)
     params: dict[str, Any] = {
-        'model': req.model or model,
+        'model': model,
         'max_tokens': req.max_tokens,
         'messages': messages,
     }

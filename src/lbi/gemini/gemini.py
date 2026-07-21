@@ -66,8 +66,7 @@ def _request_to_inline(req: BatchRequest) -> types.InlinedRequest:
     """Convert a BatchRequest into a Gemini inline request.
 
     System messages become ``system_instruction`` on the per-request
-    config; user/assistant turns become ``contents``. Note that Gemini
-    uses a single model for the whole job, so req.model is ignored.
+    config; user/assistant turns become ``contents``.
     """
     contents: list[types.Content] = []
     system_parts: list[str] = []

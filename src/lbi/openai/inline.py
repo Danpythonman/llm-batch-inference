@@ -71,7 +71,7 @@ class InlineOpenAIBatchProvider(BaseBatchProvider):
                 else:
                     raise ValueError(f'unsupported role: {role}')
             resp = await self._client.chat.completions.create(
-                model=req.model or model,
+                model=model,
                 max_tokens=req.max_tokens,
                 messages=messages,
                 temperature=req.temperature,
