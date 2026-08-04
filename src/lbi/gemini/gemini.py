@@ -141,6 +141,12 @@ class GeminiBatchProvider(BaseBatchProvider):
             raw=job,
         )
 
+    def validate_requests(
+        self, requests: list[BatchRequest], model: str
+    ) -> None:
+        del requests
+        del model
+
     async def create_batch(
         self,
         requests: list[BatchRequest],

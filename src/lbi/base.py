@@ -37,6 +37,30 @@ class BaseBatchProvider(abc.ABC):
     provider_name: str = 'base'
 
     @abc.abstractmethod
+    def validate_requests(
+        self,
+        requests: list[BatchRequest],
+        model: str,
+    ) -> None:
+        """Check requests against known provider/model constraints.
+
+        Performs no I/O: this is a local, best-effort check for
+        constraints the provider already knows about (e.g. a model
+        that rejects non-default sampling parameters), so callers can
+        catch them before submitting a batch. Passing does not
+        guarantee the provider will accept the batch. The default
+        implementation performs no checks.
+
+        Args:
+            requests: The requests that would be submitted.
+            model: The model identifier to use.
+
+        Raises:
+            BatchCreationError: If a request is known to be
+                incompatible with the given model.
+        """
+
+    @abc.abstractmethod
     async def create_batch(
         self,
         requests: list[BatchRequest],

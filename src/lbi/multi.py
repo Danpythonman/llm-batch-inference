@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from lbi.base import (
     DEFAULT_POLL_INTERVAL,
@@ -24,7 +24,9 @@ from lbi.datamodels import BatchInfo, BatchRequest, BatchResult, BatchStatus
 __all__: list[str] = [
     'BatchSubmission',
     'BatchTarget',
+    'BatchValidationResult',
     'MultiBatchResult',
+    'pre_validate',
     'run_batches',
     'run_batches_and_wait',
     'wait_and_collect',
@@ -45,17 +47,33 @@ class BatchTarget:
             "{provider.provider_name}:{model}".
         batch_filename: Name of the batch file. Defaults to a name derived
             from the label.
+        temperature: If set, overrides the temperature on every request
+            for this target only. If None (default), each request's own
+            temperature is used unchanged.
     """
 
     provider: BaseBatchProvider
     model: str
     label: str | None = None
     batch_filename: str | None = None
+    temperature: float | None = None
 
     @property
     def resolved_label(self) -> str:
         """The effective label, falling back to provider:model."""
         return self.label or f'{self.provider.provider_name}:{self.model}'
+
+    def apply_overrides(
+        self,
+        requests: list[BatchRequest],
+    ) -> list[BatchRequest]:
+        """Return requests with this target's temperature override applied.
+
+        Returns the same list unchanged when there is no override.
+        """
+        if self.temperature is None:
+            return requests
+        return [replace(r, temperature=self.temperature) for r in requests]
 
 
 @dataclass
@@ -96,6 +114,62 @@ class MultiBatchResult:
     error: str | None = None
 
 
+@dataclass
+class BatchValidationResult:
+    """The outcome of validating requests against a single target.
+
+    Args:
+        target: The target that was checked.
+        error: Error detail string, if the target's provider rejected
+            the requests as constructed. None if the check passed.
+    """
+
+    target: BatchTarget
+    error: str | None = None
+
+    @property
+    def valid(self) -> bool:
+        """Whether this target passed validation."""
+        return self.error is None
+
+
+def pre_validate(
+    requests: list[BatchRequest],
+    targets: list[BatchTarget],
+) -> list[BatchValidationResult]:
+    """Check requests against every target's known constraints.
+
+    Performs no I/O — each target's provider only checks constraints
+    it already knows about (e.g. a model that rejects non-default
+    temperature), so this can be run before run_batches_and_wait to
+    catch that class of failure without submitting anything. It is not
+    a full pre-flight check: passing does not guarantee the provider
+    will accept the batch.
+
+    Args:
+        requests: The requests that would be sent to every target.
+        targets: The provider/model combinations to check.
+
+    Returns:
+        One BatchValidationResult per target, in the same order as
+        targets.
+    """
+    results: list[BatchValidationResult] = []
+    for target in targets:
+        try:
+            target.provider.validate_requests(
+                target.apply_overrides(requests),
+                target.model,
+            )
+        except Exception as exc:
+            results.append(
+                BatchValidationResult(target=target, error=str(exc))
+            )
+        else:
+            results.append(BatchValidationResult(target=target))
+    return results
+
+
 async def _submit_one(
     target: BatchTarget,
     requests: list[BatchRequest],
@@ -106,7 +180,7 @@ async def _submit_one(
     )
     try:
         info = await target.provider.create_batch(
-            requests,
+            target.apply_overrides(requests),
             target.model,
             filename,
         )

@@ -100,6 +100,12 @@ class MistralBatchProvider(BaseBatchProvider):
             api_key=api_key or os.environ.get('MISTRAL_API_KEY'),
         )
 
+    def validate_requests(
+        self, requests: list[BatchRequest], model: str
+    ) -> None:
+        del requests
+        del model
+
     async def create_batch(
         self,
         requests: list[BatchRequest],

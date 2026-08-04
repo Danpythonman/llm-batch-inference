@@ -53,6 +53,36 @@ _STATUS_MAP: dict[str, BatchStatus] = {
     'ended': BatchStatus.COMPLETED,
 }
 
+# Models whose safety/sampling classifiers reject a non-default
+# temperature outright (400 invalid_request_error), rather than just
+# ignoring it. See:
+#   https://platform.claude.com/docs/en/about-claude/models/whats-new-sonnet-5
+#   https://platform.claude.com/docs/en/claude_api_primer
+#   https://platform.claude.com/docs/en/about-claude/models/migration-guide
+_NO_TEMPERATURE_MODELS: frozenset[str] = frozenset(
+    {
+        'claude-opus-5',
+        'claude-fable-5',
+        'claude-mythos-5',
+        'claude-opus-4-8',
+        'claude-opus-4-7',
+    }
+)
+
+
+def _validate_requests(requests: list[BatchRequest], model: str) -> None:
+    """Raise if any request sets a parameter the model will reject."""
+    if model not in _NO_TEMPERATURE_MODELS:
+        return
+    for req in requests:
+        if req.temperature is not None:
+            raise BatchCreationError(
+                f'request {req.custom_id!r} sets temperature, but'
+                f' {model!r} rejects non-default temperature/top_p/top_k'
+                ' (drop it or target a different model). See'
+                ' https://platform.claude.com/docs/en/about-claude/models/migration-guide'
+            )
+
 
 def _to_timestamp(value: dt.datetime) -> float:
     """Normalize Anthropic datetimes to a Unix timestamp."""
@@ -145,6 +175,13 @@ class AnthropicBatchProvider(BaseBatchProvider):
 
     def __init__(self, api_key: str | None = None) -> None:
         self._client = AsyncAnthropic(api_key=api_key)
+
+    def validate_requests(
+        self,
+        requests: list[BatchRequest],
+        model: str,
+    ) -> None:
+        _validate_requests(requests, model)
 
     async def create_batch(
         self,
