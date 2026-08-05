@@ -62,6 +62,7 @@ _STATUS_MAP: dict[str, BatchStatus] = {
 _NO_TEMPERATURE_MODELS: frozenset[str] = frozenset(
     {
         'claude-opus-5',
+        'claude-sonnet-5',
         'claude-fable-5',
         'claude-mythos-5',
         'claude-opus-4-8',
