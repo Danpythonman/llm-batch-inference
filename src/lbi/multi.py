@@ -13,7 +13,7 @@ import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, replace
-from typing import Final
+from typing import Any, Final
 
 from lbi.base import (
     DEFAULT_POLL_INTERVAL,
@@ -23,7 +23,8 @@ from lbi.base import (
 from lbi.datamodels import BatchInfo, BatchRequest, BatchResult, BatchStatus
 
 __all__: list[str] = [
-    'UNSET',
+    'NO_OVERRIDE',
+    'BatchOverrides',
     'BatchSubmission',
     'BatchTarget',
     'BatchValidationResult',
@@ -37,14 +38,51 @@ __all__: list[str] = [
 logger = logging.getLogger(__name__)
 
 
-class _Unset:
-    """Sentinel distinguishing "no override" from "override to None"."""
+class _NoOverride:
+    """Per-field sentinel meaning "leave this field alone".
+
+    Distinct from an explicit None, which is itself a real override
+    value for a nullable field (e.g. it unsets/clears temperature).
+    Needed so a BatchOverrides with several fields can override just
+    one of them without disturbing the rest.
+    """
 
     def __repr__(self) -> str:
-        return 'UNSET'
+        return 'NO_OVERRIDE'
 
 
-UNSET: Final[_Unset] = _Unset()
+NO_OVERRIDE: Final[_NoOverride] = _NoOverride()
+
+
+@dataclass
+class BatchOverrides:
+    """Per-target request field overrides, applied to every request.
+
+    Each field defaults to NO_OVERRIDE (leave that field as the
+    request already has it). Set a field to an explicit value —
+    including None, for nullable fields like temperature — to replace
+    it on every request sent to that target. Add new overridable
+    fields here as they come up; each needs its own NO_OVERRIDE
+    default to stay independently optional.
+
+    Args:
+        temperature: Replaces every request's temperature for this
+            target. Set to None to unset/clear it (e.g. for a model
+            that rejects non-default temperature). Left at
+            NO_OVERRIDE (default), each request's own temperature is
+            unchanged.
+    """
+
+    temperature: float | None | _NoOverride = NO_OVERRIDE
+
+    def apply(self, requests: list[BatchRequest]) -> list[BatchRequest]:
+        """Return requests with every set field replaced."""
+        changes: dict[str, Any] = {}
+        if self.temperature is not NO_OVERRIDE:
+            changes['temperature'] = self.temperature
+        if not changes:
+            return requests
+        return [replace(r, **changes) for r in requests]
 
 
 @dataclass
@@ -59,18 +97,16 @@ class BatchTarget:
             "{provider.provider_name}:{model}".
         batch_filename: Name of the batch file. Defaults to a name derived
             from the label.
-        temperature: If set (including to None), overrides the
-            temperature on every request for this target only, letting
-            a target force-clear it (e.g. for a model that rejects
-            non-default temperature). Left as UNSET (default), each
-            request's own temperature is used unchanged.
+        overrides: Per-request field overrides applied only for this
+            target. None (default) means the requests are sent
+            unmodified; see BatchOverrides for per-field semantics.
     """
 
     provider: BaseBatchProvider
     model: str
     label: str | None = None
     batch_filename: str | None = None
-    temperature: float | None | _Unset = UNSET
+    overrides: BatchOverrides | None = None
 
     @property
     def resolved_label(self) -> str:
@@ -81,15 +117,13 @@ class BatchTarget:
         self,
         requests: list[BatchRequest],
     ) -> list[BatchRequest]:
-        """Return requests with this target's temperature override applied.
+        """Return requests with this target's overrides applied.
 
-        Returns the same list unchanged when there is no override. A
-        temperature of None is a real override (force-clear), distinct
-        from leaving it UNSET.
+        Returns the same list unchanged when there are no overrides.
         """
-        if self.temperature is UNSET:
+        if self.overrides is None:
             return requests
-        return [replace(r, temperature=self.temperature) for r in requests]
+        return self.overrides.apply(requests)
 
 
 @dataclass
