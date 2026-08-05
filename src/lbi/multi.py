@@ -13,6 +13,7 @@ import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, replace
+from typing import Final
 
 from lbi.base import (
     DEFAULT_POLL_INTERVAL,
@@ -22,6 +23,7 @@ from lbi.base import (
 from lbi.datamodels import BatchInfo, BatchRequest, BatchResult, BatchStatus
 
 __all__: list[str] = [
+    'UNSET',
     'BatchSubmission',
     'BatchTarget',
     'BatchValidationResult',
@@ -33,6 +35,16 @@ __all__: list[str] = [
 ]
 
 logger = logging.getLogger(__name__)
+
+
+class _Unset:
+    """Sentinel distinguishing "no override" from "override to None"."""
+
+    def __repr__(self) -> str:
+        return 'UNSET'
+
+
+UNSET: Final[_Unset] = _Unset()
 
 
 @dataclass
@@ -47,16 +59,18 @@ class BatchTarget:
             "{provider.provider_name}:{model}".
         batch_filename: Name of the batch file. Defaults to a name derived
             from the label.
-        temperature: If set, overrides the temperature on every request
-            for this target only. If None (default), each request's own
-            temperature is used unchanged.
+        temperature: If set (including to None), overrides the
+            temperature on every request for this target only, letting
+            a target force-clear it (e.g. for a model that rejects
+            non-default temperature). Left as UNSET (default), each
+            request's own temperature is used unchanged.
     """
 
     provider: BaseBatchProvider
     model: str
     label: str | None = None
     batch_filename: str | None = None
-    temperature: float | None = None
+    temperature: float | None | _Unset = UNSET
 
     @property
     def resolved_label(self) -> str:
@@ -69,9 +83,11 @@ class BatchTarget:
     ) -> list[BatchRequest]:
         """Return requests with this target's temperature override applied.
 
-        Returns the same list unchanged when there is no override.
+        Returns the same list unchanged when there is no override. A
+        temperature of None is a real override (force-clear), distinct
+        from leaving it UNSET.
         """
-        if self.temperature is None:
+        if self.temperature is UNSET:
             return requests
         return [replace(r, temperature=self.temperature) for r in requests]
 
